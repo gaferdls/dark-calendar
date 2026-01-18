@@ -191,13 +191,17 @@ struct DayTimelineView: View {
         .offset(x: gutterWidth - 4, y: nowYOffset - 4) // -4 to vertically center the 8pt circle on the line
     }
 
-    private func hourLabel(for hour: Int) -> String {
+    private static let hourFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "h a"
+        return formatter
+    }()
+
+    private func hourLabel(for hour: Int) -> String {
         var components = Calendar.current.dateComponents([.year, .month, .day], from: day)
         components.hour = hour
         guard let date = Calendar.current.date(from: components) else { return "" }
-        return formatter.string(from: date)
+        return Self.hourFormatter.string(from: date)
     }
 
     private func yOffset(for block: TimeBlock) -> CGFloat {
