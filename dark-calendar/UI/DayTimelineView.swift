@@ -58,14 +58,113 @@ struct DayTimelineView: View {
     private var blocksLayer: some View {
         GeometryReader { geo in
             let contentWidth = geo.size.width - gutterWidth - 16 // 16 = leading(4) + trailing(12) spacing
-            let blockWidth = contentWidth * 0.78 // ~78% of available content area
+            let baseWidth = contentWidth * 0.78 // ~78% of available content area
+            let layouts = computeBlockLayouts()
 
             ForEach(timeBlocks) { block in
+                let layout = layouts[block.id] ?? BlockLayout(columnIndex: 0, columnCount: 1)
+                let columnWidth = baseWidth / CGFloat(layout.columnCount)
+                let xOffset = gutterWidth + 4 + CGFloat(layout.columnIndex) * columnWidth
+
                 TimeBlockView(timeBlock: block)
-                    .frame(width: blockWidth, height: blockHeight(for: block))
-                    .offset(x: gutterWidth + 4, y: yOffset(for: block))
+                    .frame(width: columnWidth, height: blockHeight(for: block))
+                    .offset(x: xOffset, y: yOffset(for: block))
             }
         }
+    }
+
+    private struct BlockLayout {
+        let columnIndex: Int
+        let columnCount: Int
+    }
+
+    private func computeBlockLayouts() -> [UUID: BlockLayout] {
+        guard !timeBlocks.isEmpty else { return [:] }
+
+        // Sort blocks deterministically: start asc, end asc, id asc
+        let sorted = timeBlocks.sorted { a, b in
+            if a.start != b.start { return a.start < b.start }
+            if a.end != b.end { return a.end < b.end }
+            return a.id.uuidString < b.id.uuidString
+        }
+
+        // Two blocks overlap iff a.start < b.end AND b.start < a.end (strict inequality)
+        func overlaps(_ a: TimeBlock, _ b: TimeBlock) -> Bool {
+            a.start < b.end && b.start < a.end
+        }
+
+        // Union-Find for grouping chain overlaps
+        var parent = [UUID: UUID]()
+        for block in sorted { parent[block.id] = block.id }
+
+        func find(_ id: UUID) -> UUID {
+            if parent[id] != id { parent[id] = find(parent[id]!) }
+            return parent[id]!
+        }
+
+        func union(_ a: UUID, _ b: UUID) {
+            let rootA = find(a), rootB = find(b)
+            if rootA != rootB { parent[rootA] = rootB }
+        }
+
+        // Union all overlapping pairs
+        for i in 0..<sorted.count {
+            for j in (i + 1)..<sorted.count {
+                if overlaps(sorted[i], sorted[j]) {
+                    union(sorted[i].id, sorted[j].id)
+                }
+            }
+        }
+
+        // Group blocks by their root
+        var groups = [UUID: [TimeBlock]]()
+        for block in sorted {
+            groups[find(block.id), default: []].append(block)
+        }
+
+        // Assign columns within each group
+        var layouts = [UUID: BlockLayout]()
+
+        for (_, group) in groups {
+            if group.count == 1 {
+                layouts[group[0].id] = BlockLayout(columnIndex: 0, columnCount: 1)
+                continue
+            }
+
+            // Sort group deterministically
+            let sortedGroup = group.sorted { a, b in
+                if a.start != b.start { return a.start < b.start }
+                if a.end != b.end { return a.end < b.end }
+                return a.id.uuidString < b.id.uuidString
+            }
+
+            // Greedy column assignment: track end time of last block in each column
+            var columnEndTimes = [Date]()
+            var blockColumns = [UUID: Int]()
+
+            for block in sortedGroup {
+                var assigned: Int? = nil
+                for (col, endTime) in columnEndTimes.enumerated() {
+                    if block.start >= endTime { // touching (==) is allowed, not overlapping
+                        assigned = col
+                        columnEndTimes[col] = block.end
+                        break
+                    }
+                }
+                if assigned == nil {
+                    assigned = columnEndTimes.count
+                    columnEndTimes.append(block.end)
+                }
+                blockColumns[block.id] = assigned
+            }
+
+            let columnCount = columnEndTimes.count
+            for block in sortedGroup {
+                layouts[block.id] = BlockLayout(columnIndex: blockColumns[block.id]!, columnCount: columnCount)
+            }
+        }
+
+        return layouts
     }
 
     private var isToday: Bool {
