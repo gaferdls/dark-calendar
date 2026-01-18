@@ -19,6 +19,9 @@ struct DayTimelineView: View {
                 gridLines
                 timeGutter
                 blocksLayer
+                if isToday {
+                    nowIndicator
+                }
             }
             .frame(height: CGFloat(totalHours) * hourHeight)
         }
@@ -63,6 +66,30 @@ struct DayTimelineView: View {
                     .offset(x: gutterWidth + 4, y: yOffset(for: block))
             }
         }
+    }
+
+    private var isToday: Bool {
+        Calendar.current.isDate(day, inSameDayAs: Date())
+    }
+
+    private var nowYOffset: CGFloat {
+        let calendar = Calendar.current
+        let dayStart = calendar.startOfDay(for: day)
+        let secondsFromMidnight = Date().timeIntervalSince(dayStart)
+        let hoursFromMidnight = secondsFromMidnight / 3600
+        return CGFloat(hoursFromMidnight) * hourHeight
+    }
+
+    private var nowIndicator: some View {
+        HStack(spacing: 0) {
+            Circle()
+                .fill(Color.red.opacity(0.85))
+                .frame(width: 8, height: 8)
+            Rectangle()
+                .fill(Color.red.opacity(0.6))
+                .frame(height: 1)
+        }
+        .offset(x: gutterWidth - 4, y: nowYOffset - 4) // -4 to vertically center the 8pt circle on the line
     }
 
     private func hourLabel(for hour: Int) -> String {
